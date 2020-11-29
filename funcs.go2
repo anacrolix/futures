@@ -12,12 +12,12 @@ import (
 
 // Sends each future as it completes on the returned chan, closing it when
 // everything has been sent.
-func AsCompleted(fs ...*F) <-chan *F {
-	ret := make(chan *F, len(fs))
+func AsCompleted[T](fs ...*F[T]) <-chan *F[T] {
+	ret := make(chan *F[T], len(fs))
 	var wg sync.WaitGroup
 	for _, f := range fs {
 		wg.Add(1)
-		go func(f *F) {
+		go func(f *F[T]) {
 			defer wg.Done()
 			<-f.Done()
 			ret <- f
@@ -31,8 +31,8 @@ func AsCompleted(fs ...*F) <-chan *F {
 }
 
 // Additional state maintained for each delayed element.
-type delayedState struct {
-	timeout *F
+type delayedState[T] struct {
+	timeout *F[T]
 	added   bool
 }
 
@@ -41,8 +41,8 @@ type delayedState struct {
 // have completed. One use case is to prefer the value in some futures over
 // others, such as hitting several origin servers where some are better
 // informed than others.
-func AsCompletedDelayed(ctx context.Context, initial []*F, delayed []Delayed) <-chan *F {
-	ret := make(chan *F, func() int {
+func AsCompletedDelayed[T](ctx context.Context, initial []*F[T], delayed []Delayed[T]) <-chan *F[T] {
+	ret := make(chan *F[T], func() int {
 		l := len(initial)
 		for _, d := range delayed {
 			l += len(d.Fs)
@@ -52,31 +52,31 @@ func AsCompletedDelayed(ctx context.Context, initial []*F, delayed []Delayed) <-
 	go func() {
 		defer close(ret)
 		var (
-			dss      []delayedState
-			timeouts = map[*F]struct{}{} // Pending timeouts
+			dss      []delayedState[int]
+			timeouts = map[*F[int]]struct{}{} // Pending timeouts
 		)
 		for i := range delayed {
 			func(i int) {
-				f := Start(func() (interface{}, error) {
+				f := Start(func() (int, error) {
 					select {
 					case <-time.After(delayed[i].Delay):
 						return i, nil
 					case <-ctx.Done():
-						return nil, ctx.Err()
+						return -1, ctx.Err()
 					}
 				})
 				timeouts[f] = struct{}{}
-				dss = append(dss, delayedState{timeout: f})
+				dss = append(dss, delayedState[int]{timeout: f})
 			}(i)
 		}
 		// Number of pending sends for a future.
-		results := map[*F]int{}
+		results := map[*F[T]]int{}
 		for _, f := range initial {
 			results[f]++
 		}
 	start:
 		// A slice of futures we want to send when they complete.
-		resultsSlice := func() (ret []*F) {
+		resultsSlice := func() (ret []*F[timeoutOrResult[T]]) {
 			for f, left := range results {
 				for range iter.N(left) {
 					ret = append(ret, f)
@@ -99,9 +99,9 @@ func AsCompletedDelayed(ctx context.Context, initial []*F, delayed []Delayed) <-
 				goto start
 			}
 		}
-		as := AsCompleted(append(
+		as := AsCompleted[interface{}](append(
 			resultsSlice,
-			slices.FromMapKeys(timeouts).([]*F)...,
+			slices.FromMapKeys(timeouts).([]*F[int])...,
 		)...)
 		for {
 			select {
@@ -139,4 +139,9 @@ func AsCompletedDelayed(ctx context.Context, initial []*F, delayed []Delayed) <-
 		}
 	}()
 	return ret
+}
+
+type timeoutOrResult[T] struct{
+	result T
+	timeout bool
 }

@@ -1,0 +1,15 @@
+package futures
+
+import "time"
+
+func timeoutFuture(timeout time.Duration) *F[struct{}] {
+	return Start(func() (_ struct{}, _ error) {
+		time.Sleep(timeout)
+		return
+	})
+}
+
+type Delayed[T any] struct {
+	Delay time.Duration
+	Fs    []*F[T]
+}

@@ -2,12 +2,11 @@ package futures
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 )
 
-func Start(fn func() (interface{}, error)) *F {
-	f := &F{
+func Start[T](fn func() (T, error)) *F[T] {
+	f := &F[T]{
 		done: make(chan struct{}),
 	}
 	go func() {
@@ -16,45 +15,45 @@ func Start(fn func() (interface{}, error)) *F {
 	return f
 }
 
-func StartNoError(fn func() interface{}) *F {
-	return Start(func() (interface{}, error) {
+func StartNoError[T](fn func() T) *F[T] {
+	return Start(func() (T, error) {
 		return fn(), nil
 	})
 }
 
-type F struct {
+type F[T any] struct {
 	name   string
 	mu     sync.Mutex
-	result interface{}
+	result T
 	err    error
 	done   chan struct{}
 }
 
-func (f *F) String() string {
+func (f *F[T]) String() string {
 	if f.name != "" {
 		return f.name
 	}
 	return fmt.Sprintf("future %p", f)
 }
 
-func (f *F) SetName(s string) {
+func (f *F[T]) SetName(s string) {
 	f.name = s
 }
 
-func (f *F) Err() error {
+func (f *F[T]) Err() error {
 	<-f.done
 	return f.err
 }
 
 // TODO: Just return value.
-func (f *F) Result() (interface{}, error) {
+func (f *F[T]) Result() (T, error) {
 	<-f.done
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.result, f.err
 }
 
-func (f *F) MustResult() interface{} {
+func (f *F[T]) MustResult() T {
 	val, err := f.Result()
 	if err != nil {
 		panic(err)
@@ -62,11 +61,11 @@ func (f *F) MustResult() interface{} {
 	return val
 }
 
-func (f *F) Done() <-chan struct{} {
+func (f *F[T]) Done() <-chan struct{} {
 	return f.done
 }
 
-func (f *F) setResult(result interface{}, err error) {
+func (f *F[T]) setResult(result T, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.result = result
@@ -74,8 +73,13 @@ func (f *F) setResult(result interface{}, err error) {
 	close(f.done)
 }
 
-func (f *F) ScanResult(res interface{}) error {
-	_res, err := f.Result()
-	reflect.ValueOf(res).Elem().Set(reflect.ValueOf(_res))
-	return err
+func (f *F[T]) ScanResult(res *T) (err error) {
+	*res, err = f.Result()
+	return
+}
+
+type
+
+func (f *F[T]) Fmap[U](func(T) U) *F[U] {
+	return
 }

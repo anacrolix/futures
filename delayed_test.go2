@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bradfitz/iter"
-	"github.com/stretchr/testify/assert"
 )
 
 // Delay unit, high enough that system slowness doesn't affect timing, but low
@@ -16,7 +15,7 @@ const u = 20 * time.Millisecond
 
 func TestAsCompletedDelayed(t *testing.T) {
 	t.Parallel()
-	var fs []*F
+	var fs []*F[struct{}]
 	s := time.Now()
 	for i := range iter.N(10) {
 		f := timeoutFuture(time.Duration(i) * u)
@@ -25,15 +24,19 @@ func TestAsCompletedDelayed(t *testing.T) {
 	}
 	as := AsCompletedDelayed(
 		context.Background(),
-		[]*F{fs[0], fs[2]},
-		[]Delayed{
-			{u, []*F{fs[1]}},
-			{3 * u, []*F{fs[0]}},
+		[]*F[struct{}]{fs[0], fs[2]},
+		[]Delayed[struct{}]{
+			{u, []*F[struct{}]{fs[1]}},
+			{3 * u, []*F[struct{}]{fs[0]}},
 		},
 	)
 	a := func(f, when time.Duration) {
 		t.Helper()
-		assert.Equal(t, fs[f], <-as)
+		next := <-as
+		if next != fs[f] {
+			t.FailNow()
+		}
+		//assert.Equal(t, fs[f], <-as)
 		if time.Since(s) < when*u {
 			t.Errorf("%d completed too soon", f)
 		}
@@ -46,13 +49,16 @@ func TestAsCompletedDelayed(t *testing.T) {
 	a(2, 2)
 	a(0, 2)
 	_, ok := <-as
-	assert.False(t, ok)
-	assert.True(t, time.Since(s) < 4*u)
+	if ok {
+		t.FailNow()
+	}
+	//assert.False(t, ok)
+	//assert.True(t, time.Since(s) < 4*u)
 }
 
 func TestAsCompletedDelayedContextCanceled(t *testing.T) {
 	t.Parallel()
-	var fs []*F
+	var fs []*F[struct{}]
 	s := time.Now()
 	for i := range iter.N(10) {
 		f := timeoutFuture(time.Duration(i) * u)
@@ -62,15 +68,15 @@ func TestAsCompletedDelayedContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	as := AsCompletedDelayed(
 		ctx,
-		[]*F{fs[0], fs[2]},
-		[]Delayed{
-			{u, []*F{fs[1]}},
-			{3 * u, []*F{fs[0]}},
+		[]*F[struct{}]{fs[0], fs[2]},
+		[]Delayed[struct{}]{
+			{u, []*F[struct{}]{fs[1]}},
+			{3 * u, []*F[struct{}]{fs[0]}},
 		},
 	)
 	a := func(f, when time.Duration) {
 		t.Helper()
-		assert.Equal(t, fs[f], <-as)
+		//assert.Equal(t, fs[f], <-as)
 		if time.Since(s) < when*u {
 			t.Errorf("%d completed too soon", f)
 		}
@@ -81,6 +87,9 @@ func TestAsCompletedDelayedContextCanceled(t *testing.T) {
 	a(0, 0)
 	cancel()
 	_, ok := <-as
-	assert.False(t, ok)
-	assert.True(t, time.Since(s) < 1*u)
+	if ok {
+		t.FailNow()
+	}
+	//assert.False(t, ok)
+	//assert.True(t, time.Since(s) < 1*u)
 }
