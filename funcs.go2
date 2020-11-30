@@ -76,7 +76,7 @@ func AsCompletedDelayed[T](ctx context.Context, initial []*F[T], delayed []Delay
 		}
 	start:
 		// A slice of futures we want to send when they complete.
-		resultsSlice := func() (ret []*F[timeoutOrResult[T]]) {
+		resultsSlice := func() (ret []*F[T]) {
 			for f, left := range results {
 				for range iter.N(left) {
 					ret = append(ret, f)
@@ -99,29 +99,30 @@ func AsCompletedDelayed[T](ctx context.Context, initial []*F[T], delayed []Delay
 				goto start
 			}
 		}
-		as := AsCompleted[interface{}](append(
-			resultsSlice,
-			slices.FromMapKeys(timeouts).([]*F[int])...,
-		)...)
+		as := AsCompleted(resultsSlice...)
+		timeoutsChan := AsCompleted(slices.FromMapKeys(timeouts).([]*F[int])...)
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case f, ok := <-timeoutsChan:
+				if !ok {
+					timeoutsChan = nil
+					break
+				}
+				if ctx.Err() != nil {
+					break
+				}
+				i := f.MustResult()
+				for _, f := range delayed[i].Fs {
+					results[f]++
+				}
+				delete(timeouts, f)
+				dss[i].added = true
+				goto start
 			case f, ok := <-as:
 				if !ok {
 					return
-				}
-				if _, ok := timeouts[f]; ok {
-					if ctx.Err() != nil {
-						break
-					}
-					i := f.MustResult().(int)
-					for _, f := range delayed[i].Fs {
-						results[f]++
-					}
-					delete(timeouts, f)
-					dss[i].added = true
-					goto start
 				}
 				select {
 				case ret <- f:

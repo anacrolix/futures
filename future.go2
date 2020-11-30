@@ -77,9 +77,3 @@ func (f *F[T]) ScanResult(res *T) (err error) {
 	*res, err = f.Result()
 	return
 }
-
-type
-
-func (f *F[T]) Fmap[U](func(T) U) *F[U] {
-	return
-}

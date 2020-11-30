@@ -3,6 +3,7 @@ package futures
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -52,6 +53,9 @@ func TestAsCompletedDelayed(t *testing.T) {
 	if ok {
 		t.FailNow()
 	}
+	if time.Since(s) >= 4*u {
+		t.Fatal("took too long")
+	}
 	//assert.False(t, ok)
 	//assert.True(t, time.Since(s) < 4*u)
 }
@@ -76,6 +80,10 @@ func TestAsCompletedDelayedContextCanceled(t *testing.T) {
 	)
 	a := func(f, when time.Duration) {
 		t.Helper()
+		next := <-as
+		if next != fs[f] {
+			t.Fatal("got wrong future")
+		}
 		//assert.Equal(t, fs[f], <-as)
 		if time.Since(s) < when*u {
 			t.Errorf("%d completed too soon", f)
@@ -90,6 +98,64 @@ func TestAsCompletedDelayedContextCanceled(t *testing.T) {
 	if ok {
 		t.FailNow()
 	}
+	if time.Since(s) >= u {
+		t.Fatal("took too long")
+	}
 	//assert.False(t, ok)
 	//assert.True(t, time.Since(s) < 1*u)
+}
+
+func TestAsCompletedImmediate(t *testing.T) {
+	t.Parallel()
+	var fs []*F[struct{}]
+	s := time.Now()
+	for i := range iter.N(10) {
+		f := timeoutFuture(0)
+		f.SetName(fmt.Sprintf("%d", i))
+		fs = append(fs, f)
+	}
+	as := AsCompletedDelayed(
+		context.Background(),
+		[]*F[struct{}]{fs[0], fs[2]},
+	[]Delayed[struct{}]{
+		{u, []*F[struct{}]{fs[1]}},
+		{3 * u, []*F[struct{}]{fs[0]}},
+	},
+)
+	a := func(when time.Duration, indices ...int) {
+		t.Helper()
+		var got []int
+		for len(got) != len(indices) {
+			next := <-as
+			for i, f := range fs {
+				if next==f {
+					got = append(got, i)
+				}
+			}
+		}
+		sort.Ints(got)
+		for i := range indices {
+			if indices[i] != got[i] {
+				t.Fatalf("expected future %v, got %v", indices[i], got[i])
+			}
+		}
+		if time.Since(s) < when*u {
+			t.Errorf("completed too soon")
+		}
+		if time.Since(s) >= (when+1)*u {
+			t.Errorf("completed too late")
+		}
+	}
+	a(0,0,2)
+	a(0,1)
+	a(0,0)
+	_, ok := <-as
+	if ok {
+		t.FailNow()
+	}
+	if time.Since(s) >= 4*u {
+		t.Fatal("took too long")
+	}
+	//assert.False(t, ok)
+	//assert.True(t, time.Since(s) < 4*u)
 }
